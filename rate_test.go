@@ -11,7 +11,7 @@ import (
 )
 
 func TestRateLimiterBandwidth(t *testing.T) {
-	r := NewRateLimiter(10, time.Second)
+	r := New(10, time.Second)
 
 	startTime := time.Now()
 	ctx := context.Background()
@@ -42,7 +42,7 @@ func TestRateLimiterBandwidth(t *testing.T) {
 }
 
 func TestRateLimiterContextCancel(t *testing.T) {
-	r := NewRateLimiter(10, time.Second)
+	r := New(10, time.Second)
 
 	startTime := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -67,7 +67,7 @@ func TestRateLimiterContextCancel(t *testing.T) {
 }
 
 func BenchmarkRateLimiter(b *testing.B) {
-	r := NewRateLimiter(math.MaxInt64, time.Second)
+	r := New(math.MaxInt64, time.Second)
 	ctx := context.Background()
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {

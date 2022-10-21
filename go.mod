@@ -1,4 +1,4 @@
-module ratelimiter
+module github.com/chawld/ratelimiter
 
 go 1.18
 

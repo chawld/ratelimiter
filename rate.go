@@ -9,10 +9,9 @@ import (
 
 type RateLimiter interface {
 	Wait(ctx context.Context)
-	Allow() bool
 }
 
-func NewRateLimiter(tokens int64, interval time.Duration) RateLimiter {
+func New(tokens int64, interval time.Duration) RateLimiter {
 	return &rateLimiter{
 		timeUnit: float64(interval) / float64(tokens),
 		interval: interval,
@@ -40,9 +39,9 @@ func (r *rateLimiter) Wait(ctx context.Context) {
 	r.waitN(ctx, 1)
 }
 
-// Allow returns true if the caller is allowed to perform the rate-limited operation,
+// allow returns true if the caller is allowed to perform the rate-limited operation,
 // false otherwise.
-func (r *rateLimiter) Allow() bool {
+func (r *rateLimiter) allow() bool {
 	return r.allowN(1)
 }
 
