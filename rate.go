@@ -9,6 +9,7 @@ import (
 
 type RateLimiter interface {
 	Wait(ctx context.Context)
+	GetCurrentUsage() int64
 }
 
 func New(tokens int64, interval time.Duration) RateLimiter {
@@ -111,4 +112,20 @@ func (r *rateLimiter) waitTill(ctx context.Context, waitTime time.Duration) {
 	case <-time.After(waitTime):
 		return
 	}
+}
+
+// GetCurrentUsage returns the number of calls in the current window. The value returned
+// is between 0 and <limit>.
+func (r *rateLimiter) GetCurrentUsage() int64 {
+	curToken := atomic.LoadInt64(&r.token)
+	delta := time.Unix(0, curToken*int64(r.timeUnit)).Sub(time.Now())
+	if delta > r.interval {
+		// requests overflowed into next interval
+		// Not entirely true.. doesn't factor in token jumps!
+		delta = r.interval
+	} else if delta <= 0 {
+		// no pending requests
+		return 0
+	}
+	return int64(float64(delta)/r.timeUnit) + 1
 }
