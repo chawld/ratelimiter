@@ -83,10 +83,26 @@ func TestGetCurrentUsage(t *testing.T) {
 	ctx := context.Background()
 	for i := int64(0); i < 2*limit; i++ {
 		r.Wait(ctx)
-		t.Logf("Usage: %v", r.GetCurrentUsage())
-		require.GreaterOrEqual(t, r.GetCurrentUsage(), int64(0))
-		require.LessOrEqual(t, r.GetCurrentUsage(), limit)
+		u := r.GetCurrentUsage()
+		t.Logf("Usage: %v", u)
+		require.GreaterOrEqual(t, u, int64(0))
+		require.LessOrEqual(t, u, limit)
 	}
+
+	time.Sleep(time.Second)
+	var wg sync.WaitGroup
+	for i := int64(0); i < 3*limit; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.Wait(ctx)
+		}()
+	}
+	time.Sleep(100 * time.Millisecond)
+	u := r.GetCurrentUsage()
+	t.Logf("Usage: %v", u)
+	require.Equal(t, u, limit)
+	wg.Wait()
 }
 
 func BenchmarkRateLimiter(b *testing.B) {

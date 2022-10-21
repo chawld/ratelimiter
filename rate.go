@@ -127,5 +127,5 @@ func (r *rateLimiter) GetCurrentUsage() int64 {
 		// no pending requests
 		return 0
 	}
-	return int64(float64(delta)/r.timeUnit) + 1
+	return int64(float64(delta) / r.timeUnit)
 }
