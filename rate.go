@@ -9,6 +9,7 @@ import (
 
 type RateLimiter interface {
 	Wait(ctx context.Context)
+	WaitN(ctx context.Context, n int64)
 	GetCurrentUsage() int64
 }
 
@@ -37,7 +38,7 @@ type rateLimiter struct {
 
 // Wait waits until the caller is allowed to perform the rate-limited operation.
 func (r *rateLimiter) Wait(ctx context.Context) {
-	r.waitN(ctx, 1)
+	r.WaitN(ctx, 1)
 }
 
 // allow returns true if the caller is allowed to perform the rate-limited operation,
@@ -47,7 +48,7 @@ func (r *rateLimiter) allow() bool {
 }
 
 // waitN waits until the caller is allowed to perform the rate-limited operation.
-func (r *rateLimiter) waitN(ctx context.Context, n int64) {
+func (r *rateLimiter) WaitN(ctx context.Context, n int64) {
 	var waitTime time.Duration
 	done := false
 	for !done {
@@ -57,7 +58,7 @@ func (r *rateLimiter) waitN(ctx context.Context, n int64) {
 		default:
 			oldToken, newToken := r.getNextToken(n)
 			if atomic.CompareAndSwapInt64(&r.token, oldToken, newToken) {
-				waitTime = r.timeFromToken(newToken)
+				waitTime = r.timeFromToken(newToken - n)
 				done = true
 			}
 		}
@@ -68,25 +69,23 @@ func (r *rateLimiter) waitN(ctx context.Context, n int64) {
 // allowN returns true if the caller is allowed to perform the rate-limited operation,
 // false otherwise.
 func (r *rateLimiter) allowN(n int64) bool {
-	done := false
-	for !done {
+	for {
 		oldToken, newToken := r.getNextToken(n)
-		if r.timeFromToken(newToken) > time.Duration(0) {
+		if r.timeFromToken(newToken-n) > time.Duration(0) {
 			// will have to wait :(
 			return false
 		}
 		if atomic.CompareAndSwapInt64(&r.token, oldToken, newToken) {
-			done = true
+			return true
 		}
 	}
-	return true
 }
 
 // getNextToken returns the current token and the next available token.
 func (r *rateLimiter) getNextToken(n int64) (int64, int64) {
 	oldToken := atomic.LoadInt64(&r.token)
 	now := time.Now().UnixNano()
-	newToken := int64(float64(now) / r.timeUnit)
+	newToken := int64(float64(now)/r.timeUnit) + n
 	if newToken < oldToken+n {
 		newToken = oldToken + n
 	}
