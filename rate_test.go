@@ -120,3 +120,24 @@ func BenchmarkRateLimiter(b *testing.B) {
 	}
 	wg.Wait()
 }
+
+func TestWaitN(t *testing.T) {
+	limit := int64(10)
+	r := New(limit, time.Second)
+	ctx := context.Background()
+
+	startTime := time.Now()
+	var wg sync.WaitGroup
+	for i := int64(0); i < limit; i++ {
+		wg.Add(1)
+		go func(i int64) {
+			defer wg.Done()
+			r.WaitN(ctx, i+1)
+			t.Logf("%v> %v", time.Now(), i+1)
+		}(i)
+	}
+	wg.Wait()
+	// worst case ~= (10 + 8 + 7 + ... + 1) / 10 = ((10 * 11)/2) / 10 = 5.5
+	// best case ~= (1 + 2 + ... + 9) / 10 = 4.5
+	require.Greater(t, time.Since(startTime), 4*time.Second)
+}
