@@ -15,66 +15,44 @@ func TestRateLimiterBandwidth(t *testing.T) {
 	r := New(limit, time.Second)
 	require.Equal(t, r.GetCurrentUsage(), int64(0))
 
+	// wait for the next interval to start
+	time.Sleep(time.Second - time.Duration(time.Now().UnixNano())%time.Second)
+
 	startTime := time.Now()
 	ctx := context.Background()
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 4*int(limit); i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			for j := 0; j < int(limit); j++ {
-				r.Wait(ctx)
-				t.Logf("%v> [%v, %v]", time.Now(), i, j)
-			}
+			r.Wait(ctx)
 		}(i)
 	}
 	time.Sleep(time.Second)
-	require.Greater(t, r.GetCurrentUsage(), int64(0))
-	require.LessOrEqual(t, r.GetCurrentUsage(), limit)
-
-	time.Sleep(10 * time.Second)
-	require.Equal(t, r.GetCurrentUsage(), int64(0))
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			for j := 0; j < 10; j++ {
-				r.Wait(ctx)
-				t.Logf("%v> [%v, %v]", time.Now(), i, j)
-			}
-		}(i)
-	}
-	time.Sleep(time.Second)
-	require.Greater(t, r.GetCurrentUsage(), int64(0))
-	require.LessOrEqual(t, r.GetCurrentUsage(), limit)
+	require.Equal(t, limit, r.GetCurrentUsage())
 
 	wg.Wait()
-	require.GreaterOrEqual(t, time.Since(startTime), 14*time.Second)
+	require.Less(t, 2900*time.Millisecond, time.Since(startTime))
 }
 
 func TestRateLimiterContextCancel(t *testing.T) {
+	limit := int64(10)
 	r := New(10, time.Second)
 
 	startTime := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	timeout := 2 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 10*int(limit); i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			for j := 0; j < 10; j++ {
-				r.Wait(ctx)
-				if ctx.Err() != nil {
-					return
-				}
-				t.Logf("%v> [%v, %v]", time.Now(), i, j)
-			}
+			r.Wait(ctx)
 		}(i)
 	}
 	wg.Wait()
-	require.GreaterOrEqual(t, time.Since(startTime), 2*time.Second)
-	require.LessOrEqual(t, time.Since(startTime), 3*time.Second)
+	require.Greater(t, timeout+time.Second, time.Since(startTime))
 }
 
 func TestGetCurrentUsage(t *testing.T) {
@@ -83,10 +61,8 @@ func TestGetCurrentUsage(t *testing.T) {
 	ctx := context.Background()
 	for i := int64(0); i < 2*limit; i++ {
 		r.Wait(ctx)
-		u := r.GetCurrentUsage()
-		t.Logf("Usage: %v", u)
-		require.GreaterOrEqual(t, u, int64(0))
-		require.LessOrEqual(t, u, limit)
+		exp := i%limit + 1
+		require.Equal(t, exp, r.GetCurrentUsage())
 	}
 
 	time.Sleep(time.Second)
@@ -100,9 +76,18 @@ func TestGetCurrentUsage(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 	u := r.GetCurrentUsage()
-	t.Logf("Usage: %v", u)
-	require.Equal(t, u, limit)
+	require.Equal(t, limit, u)
 	wg.Wait()
+
+	limit = int64(100000)
+	r = New(limit, time.Second).(*rateLimiter)
+	time.Sleep(time.Second - time.Duration(time.Now().UnixNano())%time.Second)
+
+	for i := int64(0); i < 10; i++ {
+		r.Wait(ctx)
+		exp := i%limit + 1
+		require.Equal(t, exp, r.GetCurrentUsage())
+	}
 }
 
 func BenchmarkRateLimiter(b *testing.B) {
@@ -125,6 +110,8 @@ func TestWaitN(t *testing.T) {
 	limit := int64(10)
 	r := New(limit, time.Second)
 	ctx := context.Background()
+	// wait for the next interval
+	time.Sleep(time.Second - time.Duration(time.Now().UnixNano())%time.Second)
 
 	startTime := time.Now()
 	var wg sync.WaitGroup
@@ -133,11 +120,11 @@ func TestWaitN(t *testing.T) {
 		go func(i int64) {
 			defer wg.Done()
 			r.WaitN(ctx, i+1)
-			t.Logf("%v> %v", time.Now(), i+1)
 		}(i)
 	}
 	wg.Wait()
-	// worst case ~= (10 + 8 + 7 + ... + 1) / 10 = ((10 * 11)/2) / 10 = 5.5
-	// best case ~= (1 + 2 + ... + 9) / 10 = 4.5
-	require.Greater(t, time.Since(startTime), 4*time.Second)
+	// worst case ~= floor((10 + 8 + 7 + ... + 2) / 10) = floor(5.4) = 5
+	// best case ~= floor((1 + 2 + ... + 9) / 10) = floor(4.5) = 4
+	require.Less(t, 3900*time.Millisecond, time.Since(startTime))
+	require.Greater(t, 5900*time.Millisecond, time.Since(startTime))
 }
