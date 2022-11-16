@@ -128,3 +128,82 @@ func TestWaitN(t *testing.T) {
 	require.Less(t, 3900*time.Millisecond, time.Since(startTime))
 	require.Greater(t, 5900*time.Millisecond, time.Since(startTime))
 }
+
+func TestGetUsage(t *testing.T) {
+	limit := int64(10)
+	r := New(limit, time.Second).(*rateLimiter)
+	ctx := context.Background()
+
+	// wait for the next interval
+	time.Sleep(time.Second - time.Duration(time.Now().UnixNano())%time.Second)
+
+	used, current, unused := r.GetUsage()
+	require.EqualValues(t, 0, used)
+	require.EqualValues(t, 0, current)
+
+	for i := 0; i < int(limit-1); i++ {
+		r.Wait(ctx)
+	} // used 'limit-1' tokens
+
+	used, current, unused = r.GetUsage()
+	require.EqualValues(t, limit-1, used)
+	require.EqualValues(t, 0, current)
+	require.EqualValues(t, 0, unused)
+
+	// wait for the next interval
+	time.Sleep(time.Second - time.Duration(time.Now().UnixNano())%time.Second)
+
+	r.Wait(ctx) // used 'limit' tokens
+
+	used, current, unused = r.GetUsage()
+	require.EqualValues(t, limit, used)
+	require.EqualValues(t, limit, current)
+	require.EqualValues(t, 1, unused)
+
+	// wait for the next interval
+	time.Sleep(time.Second - time.Duration(time.Now().UnixNano())%time.Second)
+
+	r.WaitN(ctx, limit-1) // used '2*limit-1' tokens
+	r.WaitN(ctx, limit+1) // used '3*limit' tokens
+
+	used, current, unused = r.GetUsage()
+	require.EqualValues(t, 3*limit, used)
+	require.EqualValues(t, 2*limit, current)
+	require.EqualValues(t, 1+9, unused)
+
+	// wait for the next interval
+	time.Sleep(time.Second - time.Duration(time.Now().UnixNano())%time.Second)
+
+	used, current, unused = r.GetUsage()
+	require.EqualValues(t, 3*limit, used)
+	require.EqualValues(t, 3*limit, current)
+	require.EqualValues(t, 1+9, unused)
+
+	// wait for the next interval
+	time.Sleep(time.Second - time.Duration(time.Now().UnixNano())%time.Second)
+
+	used, current, unused = r.GetUsage()
+	require.EqualValues(t, 3*limit, used)
+	require.EqualValues(t, 4*limit, current)
+	require.EqualValues(t, 1+9, unused)
+}
+
+func TestRace(t *testing.T) {
+	limit := int64(100)
+	r := New(limit, time.Second).(*rateLimiter)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	for i := int64(0); i < limit*2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ctx.Err() == nil {
+				r.Wait(ctx)
+				r.GetUsage()
+			}
+		}()
+	}
+	wg.Wait()
+}
